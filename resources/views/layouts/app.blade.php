@@ -44,6 +44,16 @@
                     </li>
                 </ul>
             </div>
+            <div class="d-flex">
+                @if(Auth::check())
+                    <span class="text-white">Welcome, {{ Auth::user()->name }}</span>
+                    <a href="{{ route('logout') }}" class="btn btn-danger">Logout</a>   
+                @else
+                    <a href="{{ route('login') }}" class="btn btn-primary">Login</a>
+                    <a href="{{ route('register') }}" class="btn btn-primary">Register</a>
+                   
+                @endif
+            </div>
         </div>
     </nav>
 

@@ -131,6 +131,7 @@ class ContactController extends Controller
      */
     public function show(Contact $contact)
     {
+       
         $contact->load('customFieldValues.customField');
         
         // Get contacts that were merged into this contact
@@ -146,10 +147,11 @@ class ContactController extends Controller
         $mergedData = null;
         if ($contact->merged_into_id) {
             $mergedData = $contact->mergedIntoRecord;
+            
         } elseif ($contact->mergedContacts()->exists()) {
             // This contact is a master, get the latest merged data
-            $mergedData = $contact->getLatestMergedData();
-        }
+            $mergedData = $contact->getLatestMergedData();           
+        }      
         
         return view('contacts.show', compact('contact', 'mergedContacts', 'masterContact', 'mergedData'));
     }
@@ -306,6 +308,7 @@ class ContactController extends Controller
 
     public function mergeContactsWithMaster(Request $request)
     {
+        \Log::info('mergeContactsWithMaster called', ['request' => $request->all()]);
         $request->validate([
             'master_id' => 'required|exists:contacts,id',
             'merge_id' => 'required|exists:contacts,id|different:master_id',
@@ -313,8 +316,10 @@ class ContactController extends Controller
 
         $master = Contact::with('customFieldValues')->findOrFail($request->master_id);
         $merge = Contact::with('customFieldValues')->findOrFail($request->merge_id);
+        \Log::info('Loaded master and merge contacts', ['master' => $master->toArray(), 'merge' => $merge->toArray()]);
 
         if ($master->merged_into_id || $merge->merged_into_id) {
+            \Log::warning('Attempted to merge already merged contacts', ['master_merged_into_id' => $master->merged_into_id, 'merge_merged_into_id' => $merge->merged_into_id]);
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot merge contacts that have already been merged.',
@@ -347,8 +352,8 @@ class ContactController extends Controller
             $masterUpdates['email'] = $merge->email;
             $mergedCombinedData['merged_combined_email'] = $master->email ?: $merge->email;
             $mergeSummary['emails_merged'] = true;
+            \Log::info('Email merged', ['master_email' => $master->email, 'merge_email' => $merge->email]);
         } else {
-            // Keep master's email (either same or master has email, secondary doesn't)
             $mergedCombinedData['merged_combined_email'] = $master->email;
         }
 
@@ -357,8 +362,8 @@ class ContactController extends Controller
             $masterUpdates['phone'] = $merge->phone;
             $mergedCombinedData['merged_combined_phone'] = $master->phone ?: $merge->phone;
             $mergeSummary['phones_merged'] = true;
+            \Log::info('Phone merged', ['master_phone' => $master->phone, 'merge_phone' => $merge->phone]);
         } else {
-            // Keep master's phone (either same or master has phone, secondary doesn't)
             $mergedCombinedData['merged_combined_phone'] = $master->phone;
         }
 
@@ -366,6 +371,7 @@ class ContactController extends Controller
             $masterUpdates['profile_image'] = $merge->profile_image;
             $mergedCombinedData['merged_combined_profile_image'] = $merge->profile_image;
             $mergeSummary['files_merged'][] = 'profile_image';
+            \Log::info('Profile image merged', ['profile_image' => $merge->profile_image]);
         } else {
             $mergedCombinedData['merged_combined_profile_image'] = $master->profile_image;
         }
@@ -373,6 +379,7 @@ class ContactController extends Controller
             $masterUpdates['additional_file'] = $merge->additional_file;
             $mergedCombinedData['merged_combined_additional_file'] = $merge->additional_file;
             $mergeSummary['files_merged'][] = 'additional_file';
+            \Log::info('Additional file merged', ['additional_file' => $merge->additional_file]);
         } else {
             $mergedCombinedData['merged_combined_additional_file'] = $master->additional_file;
         }
@@ -381,6 +388,7 @@ class ContactController extends Controller
 
         // Update master contact with missing information
         if (!empty($masterUpdates)) {
+            \Log::info('Updating master contact with', ['updates' => $masterUpdates]);
             $master->update($masterUpdates);
         }
 
@@ -389,6 +397,7 @@ class ContactController extends Controller
         $mergedCombinedData['merge_summary'] = $mergeSummary;
         $mergedCombinedData['merged_at'] = now();
         $mergedContactRecord = MergedContact::create($mergedCombinedData);
+        \Log::info('Created merged contact record', ['merged_contact_record' => $mergedContactRecord->toArray()]);
 
         // Process custom fields with fill gaps strategy
         $mergeFieldValues = $merge->customFieldValues->keyBy('contact_custom_field_id');
@@ -421,6 +430,7 @@ class ContactController extends Controller
                     'field_type' => $customField->type ?? 'text',
                     'value' => $mergeValue->value
                 ];
+                \Log::info('Custom field added to master', ['field_id' => $fieldId, 'value' => $mergeValue->value]);
             } elseif (!$masterValue->value && $mergeValue->value) {
                 // Master has field but no value, secondary has value - add secondary's value
                 $combinedValue = $mergeValue->value;
@@ -434,6 +444,7 @@ class ContactController extends Controller
                     'field_type' => $customField->type ?? 'text',
                     'value' => $mergeValue->value
                 ];
+                \Log::info('Custom field gap filled', ['field_id' => $fieldId, 'value' => $mergeValue->value]);
             } elseif ($masterValue->value && $mergeValue->value && $masterValue->value !== $mergeValue->value) {
                 // Both have values but different - keep master's value, store both in merged table
                 $combinedValue = $masterValue->value;
@@ -447,6 +458,7 @@ class ContactController extends Controller
                     'merged_value' => $mergeValue->value,
                     'resolution' => $mergeDetails['resolution']
                 ];
+                \Log::info('Custom field conflict', ['field_id' => $fieldId, 'master_value' => $masterValue->value, 'merged_value' => $mergeValue->value]);
             } else {
                 // Keep master's value (same values or master has value, secondary doesn't)
                 $combinedValue = $masterValue->value;
@@ -461,9 +473,11 @@ class ContactController extends Controller
         }
 
         $mergedContactRecord->update(['merge_summary' => $mergeSummary]);
+        \Log::info('Updated merged contact record with merge summary', ['merge_summary' => $mergeSummary]);
 
         $merge->merged_into_id = $master->id;
         $merge->save();
+        \Log::info('Updated merged contact with merged_into_id', ['merged_contact_id' => $merge->id, 'merged_into_id' => $master->id]);
 
         return response()->json([
             'success' => true,

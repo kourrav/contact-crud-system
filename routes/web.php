@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\ContactCustomFieldController;
+use App\Http\Controllers\Auth\LoginController;
 
 Route::get('/', function () {
     return view('auth.login');
@@ -18,6 +19,7 @@ Route::middleware(['auth'])->group(function () {
         'custom-fields' => 'custom_field'
     ]);
     Route::patch('custom-fields/{custom_field}/toggle-status', [ContactCustomFieldController::class, 'toggleStatus'])->name('custom-fields.toggle-status');
+    Route::get('/logout', [LoginController::class, 'logout'])->name('logout');
 });
 
 Auth::routes();
